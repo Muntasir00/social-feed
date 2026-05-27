@@ -10,6 +10,8 @@ class PostVisibility(models.TextChoices):
 class Post(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name="posts")
     text = models.TextField(blank=True)
+    like_count = models.PositiveIntegerField(default=0)
+    comment_count = models.PositiveIntegerField(default=0)
     visibility = models.CharField(
         max_length=20, choices=PostVisibility.choices, default=PostVisibility.PUBLIC
     )

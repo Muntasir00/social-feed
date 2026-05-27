@@ -1,7 +1,8 @@
-from django.db.models import Count, Exists, OuterRef, Q
-from rest_framework import generics, permissions, status
+from django.db.models import Exists, OuterRef, Q, F
+from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
 
 from .models import (
     Post,
@@ -44,11 +45,7 @@ class PostListCreateView(generics.ListCreateAPIView):
                 "comments__replies__author",
             )
             .annotate(
-                like_count=Count("likes", distinct=True),
-                comment_count=Count("comments", distinct=True),
-                is_liked=Exists(
-                    PostLike.objects.filter(post=OuterRef("pk"), user=user)
-                ),
+                is_liked=Exists(PostLike.objects.filter(post=OuterRef("pk"), user=user))
             )
             .order_by("-created_at")
         )
@@ -58,20 +55,26 @@ class TogglePostLikeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, post_id):
-        post = Post.objects.get(id=post_id)
+        post = get_object_or_404(Post, id=post_id)
 
         like, created = PostLike.objects.get_or_create(post=post, user=request.user)
 
-        if not created:
-            like.delete()
-            return Response({"liked": False})
+        if created:
+            Post.objects.filter(id=post.id).update(like_count=F("like_count") + 1)
 
-        return Response({"liked": True})
+            return Response({"liked": True, "message": "Post liked successfully."})
+
+        like.delete()
+
+        Post.objects.filter(id=post.id).update(like_count=F("like_count") - 1)
+
+        return Response({"liked": False, "message": "Post unliked successfully."})
 
 
 class PostLikedUsersView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserMiniSerializer
+    pagination_class = None
 
     def get_queryset(self):
         post_id = self.kwargs["post_id"]
@@ -84,9 +87,11 @@ class CommentCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         post_id = self.kwargs["post_id"]
-        post = Post.objects.get(id=post_id)
+        post = get_object_or_404(Post, id=post_id)
 
         serializer.save(post=post, author=self.request.user)
+
+        Post.objects.filter(id=post.id).update(comment_count=F("comment_count") + 1)
 
 
 class ToggleCommentLikeView(APIView):
@@ -109,6 +114,7 @@ class ToggleCommentLikeView(APIView):
 class CommentLikedUsersView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserMiniSerializer
+    pagination_class = None
 
     def get_queryset(self):
         comment_id = self.kwargs["comment_id"]
@@ -146,6 +152,7 @@ class ToggleReplyLikeView(APIView):
 class ReplyLikedUsersView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserMiniSerializer
+    pagination_class = None
 
     def get_queryset(self):
         reply_id = self.kwargs["reply_id"]
